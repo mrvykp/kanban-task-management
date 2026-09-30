@@ -1,39 +1,64 @@
-import React, { useState } from "react";
-import {
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  RightCircleTwoTone,
-  UploadOutlined,
-  UserOutlined,
-  VideoCameraOutlined,
-} from "@ant-design/icons";
-import { Button, Layout, Menu, theme } from "antd";
+import { Layout } from "antd";
 import Sidebar from "../components/Sidebar";
 import HeaderContainer from "../components/HeaderContainer";
-
-const { Header, Content } = Layout;
+import TasksContainer from "../components/TasksContainer";
+import { getAllBoards, getBoardById } from "../services/boardServices";
+import { useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "../queryKeys";
 
 const BoardPage = () => {
-  const [collapsed, setCollapsed] = useState(false);
+  const { boardId } = useParams();
+
+  // const selectedBoard = boards.find((board) => String(board.id) === boardId);
+
   const {
-    token: { colorBgContainer, borderRadiusLG },
-  } = theme.useToken();
+    data: boards = [],
+    isPending: boardsLoading,
+    isError: boardsError,
+  } = useQuery({
+    queryKey: queryKeys.boards,
+    queryFn: getAllBoards,
+  });
+
+  const {
+    data: selectedBoard,
+    isPending: boardLoading,
+    isError: boardError,
+  } = useQuery({
+    queryKey: queryKeys.board(boardId ?? ""),
+    queryFn: () => getBoardById(boardId!),
+
+    enabled: !!boardId,
+  });
+
+  if (boardsLoading || boardLoading) {
+    return <p>Loading...</p>;
+  }
+
+  if (boardsError || boardError) {
+    return <p>Something went wrong</p>;
+  }
+
+  if (!selectedBoard) {
+    return <p>Board not found</p>;
+  }
   return (
-    <Layout>
-      <Sidebar />
-      <Layout>
-        <HeaderContainer />
-        <Content
-          style={{
-            margin: "24px 16px",
-            padding: 24,
-            minHeight: 280,
-            background: colorBgContainer,
-            borderRadius: borderRadiusLG,
-          }}
-        >
-          Content
-        </Content>
+    <Layout
+      style={{
+        height: "100vh",
+        overflow: "hidden",
+      }}
+    >
+      <Sidebar boards={boards} />
+      <Layout
+        style={{
+          height: "100vh",
+          overflow: "hidden",
+        }}
+      >
+        <HeaderContainer board={selectedBoard} view="kanban" />
+        <TasksContainer board={selectedBoard} />
       </Layout>
     </Layout>
   );
