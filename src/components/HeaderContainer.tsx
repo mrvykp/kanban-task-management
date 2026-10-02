@@ -18,9 +18,10 @@ import type { IBoardData } from "../types/boardData";
 import type { ICreateTaskRequest } from "../types/taskData";
 import { createTask } from "../services/taskServices";
 import { useNotify } from "../hooks/useNotify";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import { useNavigate } from "react-router-dom";
+import { getColumnsByBoard } from "../services/columnServices";
 
 const { Header } = Layout;
 
@@ -63,16 +64,23 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const { data: columns = [], isPending: columnsLoading } = useQuery({
+    queryKey: queryKeys.columns(board.id),
+    queryFn: () => getColumnsByBoard(board.id),
+  });
+
   const createTaskMutation = useMutation({
-    mutationFn: (request: ICreateTaskRequest) => createTask(board.id, request),
+    mutationFn: (request: ICreateTaskRequest) => createTask(request),
 
     onSuccess: async (newTask) => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.board(board.id),
+          queryKey: queryKeys.tasksByColumn(newTask.columnId),
         }),
 
-        queryClient.invalidateQueries({ queryKey: queryKeys.boards }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.columns(board.id),
+        }),
       ]);
 
       notify.success(
@@ -102,13 +110,13 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
   const onFinish = async (values: {
     title: string;
     description: string;
-    status: string;
+    columnId: string;
     subtasks?: string[];
   }) => {
     const request: ICreateTaskRequest = {
+      columnId: values.columnId,
       title: values.title,
       description: values.description ?? "",
-      status: values.status,
 
       subtasks: (values.subtasks ?? []).map((title) => ({
         title,
@@ -286,7 +294,7 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
           </p>
 
           <Form.Item
-            name="status"
+            name="columnId"
             rules={[
               {
                 required: true,
@@ -295,9 +303,10 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
             ]}
           >
             <Select
+              loading={columnsLoading}
               placeholder="Select the current status"
-              options={board.columns.map((column) => ({
-                value: column.name,
+              options={columns.map((column) => ({
+                value: column.id,
                 label: column.name.toUpperCase(),
               }))}
             />

@@ -6,20 +6,21 @@ import {
   type CheckboxOptionType,
   type MenuProps,
 } from "antd";
-import type { ITaskData } from "../types/taskData";
+import type { ITaskData, ITaskDetails } from "../types/taskData";
 import { MoreOutlined } from "@ant-design/icons";
+import type { IColumnData } from "../types/columnData";
 
 interface TaskDetailsModalProps {
   open: boolean;
-  task: ITaskData;
-  columns: string[];
+  task: ITaskDetails;
+  columns: IColumnData[];
 
   onClose: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 
   onStatusChange: (status: string) => void;
-  onSubtaskChange: (checkedValues: (string | number)[]) => void;
+  onSubtaskChange: (checkedValues: string[]) => void;
 
   showActions?: boolean;
 }
@@ -45,7 +46,7 @@ const TaskDetailsModal = ({
     .filter((subtask) => subtask.isCompleted)
     .map((subtask) => subtask.id);
 
-  const options: CheckboxOptionType<number>[] = task.subtasks.map(
+  const options: CheckboxOptionType<string>[] = task.subtasks.map(
     (subtask) => ({
       label: subtask.title,
       value: subtask.id,
@@ -146,12 +147,12 @@ const TaskDetailsModal = ({
       </p>
 
       <Select
-        value={task.status}
+        value={task.columnId}
         style={{ width: "100%" }}
         onChange={onStatusChange}
         options={columns.map((column) => ({
-          value: column,
-          label: column.toUpperCase(),
+          value: column.id,
+          label: column.name.toUpperCase(),
         }))}
       />
     </Modal>

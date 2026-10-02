@@ -1,13 +1,14 @@
 import { Button, Col, Form, Input, Layout, Modal, Row, theme } from "antd";
 import TaskCard from "./TaskCard";
-import type { IBoardData, IUpdateBoardRequest } from "../types/boardData";
-import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { updateBoard } from "../services/boardServices";
+import type { IBoardData } from "../types/boardData";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import { useNotify } from "../hooks/useNotify";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { createStyles } from "antd-style";
+import { getColumnsByBoard, updateColumn } from "../services/columnServices";
+import { getTasks } from "../services/taskServices";
 
 const { Content } = Layout;
 
@@ -37,8 +38,16 @@ interface TaskContainerProps {
   board: IBoardData;
 }
 
+interface ColumnFormValue {
+  id?: string;
+  name: string;
+}
+
+interface ColumnFormValues {
+  columns: ColumnFormValue[];
+}
+
 const TasksContainer = ({ board }: TaskContainerProps) => {
-  const [editingBoard, setEditingBoard] = useState<IBoardData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const [form] = Form.useForm();
@@ -46,28 +55,84 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
   const notify = useNotify();
   const { styles } = useStyles();
 
-  const updateBoardMutation = useMutation({
-    mutationFn: ({
-      boardId,
-      request,
-    }: {
-      boardId: string;
-      request: IUpdateBoardRequest;
-    }) => updateBoard(boardId, request),
+  const {
+    token: { colorBgContainer },
+  } = theme.useToken();
 
-    onSuccess: (updatedBoard) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.boards,
+  const {
+    data: columns = [],
+    isPending: columnsLoading,
+    isError: columnsError,
+  } = useQuery({
+    queryKey: queryKeys.columns(board.id),
+    queryFn: () => getColumnsByBoard(board.id),
+  });
+
+  const {
+    data: tasks = [],
+    isPending: tasksLoading,
+    isError: tasksError,
+  } = useQuery({
+    queryKey: queryKeys.tasksByBoard(board.id),
+    queryFn: () => getTasks({ boardId: board.id }),
+  });
+
+  const saveColumnsMutation = useMutation({
+    mutationFn: async (formColumns: ColumnFormValue[]) => {
+      const submittedColumns = formColumns.map((column) => ({
+        ...column,
+        name: column.name.trim(),
+      }));
+
+      const submittedIds = new Set(
+        submittedColumns
+          .filter((column) => column.id)
+          .map((column) => column.id as string),
+      );
+
+      const columnsToDelete = columns.filter(
+        (column) => !submittedIds.has(column.id),
+      );
+
+      const columnsToCreate = submittedColumns.filter((column) => !column.id);
+
+      const columnsToUpdate = submittedColumns.filter((column) => {
+        if (!column.id) return false;
+
+        const existingColumn = columns.find(
+          (existing) => existing.id === column.id,
+        );
+
+        return existingColumn && existingColumn.name !== column.name;
       });
 
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.board(updatedBoard.id),
-      });
+      await Promise.all(
+        columnsToUpdate.map((column) =>
+          updateColumn(column.id!, {
+            boardId: board.id,
+            name: column.name,
+          }),
+        ),
+      );
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.columns(board.id),
+        }),
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tasksByBoard(board.id),
+        }),
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.board(board.id),
+        }),
+      ]);
 
       notify.success("Board updated", "Changes saved successfully.");
 
       form.resetFields();
-      setEditingBoard(null);
       setIsModalOpen(false);
     },
 
@@ -77,57 +142,36 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
     },
   });
 
-  const {
-    token: { colorBgContainer },
-  } = theme.useToken();
-  const columnNamesKey = board.columns.map((column) => column.name).join("|");
+  const columnNamesKey = columns.map((column) => column.id).join("|");
 
-  const columnNames = useMemo(
-    () => board.columns.map((column) => column.name),
-    [columnNamesKey],
-  );
-
-  const showEditModal = (board: IBoardData) => {
-    setEditingBoard(board);
-
+  const showEditModal = () => {
     form.setFieldsValue({
-      columns: board.columns.map((column) => column.name),
+      columns:
+        columns.length > 0
+          ? columns.map((column) => ({ id: column.id, name: column.name }))
+          : [{ name: "" }],
     });
 
     setIsModalOpen(true);
-    console.log(board);
-  };
-
-  const onSubmit = (values: { columns: string[] }) => {
-    if (!editingBoard) return;
-    const request: IUpdateBoardRequest = {
-      name: editingBoard.name,
-      columns: values.columns.map((column) => {
-        const trimmedName = column.trim();
-
-        const existingColumn = editingBoard.columns.find(
-          (column) => column.name.toLowerCase() === trimmedName.toLowerCase(),
-        );
-
-        return {
-          name: trimmedName,
-          tasks: existingColumn?.tasks ?? [],
-        };
-      }),
-    };
-
-    updateBoardMutation.mutate({
-      boardId: editingBoard.id,
-      request,
-    });
-    return;
   };
 
   const handleCancel = () => {
     form.resetFields();
-    setEditingBoard(null);
     setIsModalOpen(false);
   };
+
+  const onSubmit = (values: ColumnFormValues) => {
+    saveColumnsMutation.mutate(values.columns);
+  };
+
+  if (columnsLoading || tasksLoading) {
+    return <Content>Loading...</Content>;
+  }
+
+  if (columnsError || tasksError) {
+    return <Content>Failed to load board data.</Content>;
+  }
+
   return (
     <Content
       style={{
@@ -142,21 +186,22 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
       <Row>
         <Col flex="0 0 80%">
           <Row gutter={[16, 24]}>
-            {board.columns.map((column) => (
-              <Col key={column.name} lg={8} sm={12} xs={24}>
-                <p style={{ color: "grey", fontSize: "11px" }}>
-                  {column.name.toUpperCase()} ({column.tasks.length})
-                </p>
-                {column.tasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    data={task}
-                    boardId={board.id}
-                    columns={columnNames}
-                  />
-                ))}
-              </Col>
-            ))}
+            {columns.map((column) => {
+              const columnTasks = tasks.filter(
+                (task) => task.columnId === column.id,
+              );
+
+              return (
+                <Col key={column.id} lg={8} sm={12} xs={24}>
+                  <p style={{ color: "grey", fontSize: "11px" }}>
+                    {column.name.toUpperCase()} ({columnTasks.length})
+                  </p>
+                  {columnTasks.map((task) => (
+                    <TaskCard key={task.id} task={task} columns={columns} />
+                  ))}
+                </Col>
+              );
+            })}
           </Row>
         </Col>
 
@@ -168,7 +213,7 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
               alignItems: "center",
               cursor: "pointer",
             }}
-            onClick={() => showEditModal(board)}
+            onClick={showEditModal}
           >
             + Add new Col
           </div>
@@ -195,9 +240,12 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
             name="columns"
             rules={[
               {
-                validator: async (_, columns: string[] = []) => {
-                  const normalizedColumns = columns.map((column) =>
-                    column.trim().toLowerCase(),
+                validator: async (
+                  _,
+                  columns: ColumnFormValue[] | undefined,
+                ) => {
+                  const normalizedColumns = (columns ?? []).map((column) =>
+                    column.name.trim().toLowerCase(),
                   );
 
                   const hasDuplicates =
@@ -223,47 +271,46 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
                 }}
               >
                 {fields.map((field) => (
-                  <Form.Item
+                  <div
                     key={field.key}
                     style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
                       marginBottom: "12px",
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                      }}
-                    >
-                      <Form.Item
-                        {...field}
-                        noStyle
-                        rules={[
-                          {
-                            required: true,
-                            whitespace: true,
-                            message: "Please enter a column name",
-                          },
-                        ]}
-                      >
-                        <Input placeholder="e.g. To Do" />
-                      </Form.Item>
+                    <Form.Item name={[field.name, "id"]} hidden>
+                      <Input />
+                    </Form.Item>
 
-                      {fields.length > 1 && (
-                        <MinusCircleOutlined
-                          className={styles.dynamicDeleteButton}
-                          onClick={() => remove(field.name)}
-                        />
-                      )}
-                    </div>
-                  </Form.Item>
+                    <Form.Item
+                      name={[field.name, "name"]}
+                      style={{ flex: 1, marginBottom: 0 }}
+                      rules={[
+                        {
+                          required: true,
+                          whitespace: true,
+                          message: "Please enter a column name",
+                        },
+                      ]}
+                    >
+                      <Input placeholder="e.g. To Do" />
+                    </Form.Item>
+
+                    {fields.length > 1 && (
+                      <MinusCircleOutlined
+                        className={styles.dynamicDeleteButton}
+                        onClick={() => remove(field.name)}
+                      />
+                    )}
+                  </div>
                 ))}
 
                 <Form.Item>
                   <Button
                     type="primary"
-                    onClick={() => add("")}
+                    onClick={() => add({ name: "" })}
                     style={{
                       width: "100%",
                       height: "40px",
@@ -293,9 +340,9 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
                 backgroundColor: "#635FC7",
                 fontWeight: 600,
               }}
-              loading={updateBoardMutation.isPending}
+              loading={saveColumnsMutation.isPending}
             >
-              {"Save Changes"}
+              Save Changes
             </Button>
           </Form.Item>
         </Form>

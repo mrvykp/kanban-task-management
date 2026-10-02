@@ -1,34 +1,59 @@
 import type { IBoardData } from "./boardData";
 
 export interface ITaskData {
-  id: number;
+  id: string;
+  boardId: string;
+  columnId: string;
   description: string;
   title: string;
+  status: string;
+  totalSubtasks: number;
+  completedSubtasks: number;
+}
+
+export interface ITaskDetails {
+  id: string;
+  boardId: string;
+  columnId: string;
+  title: string;
+  description: string;
   status: string;
   subtasks: ISubtaskData[];
 }
 
-interface ISubtaskData {
-  id: number;
-  title: string;
-  isCompleted: boolean;
-}
-
 export interface ICreateTaskRequest {
+  columnId: string;
   title: string;
   description: string;
-  status: string;
   subtasks: {
+    title: string;
+    isCompleted?: boolean;
+  }[];
+}
+
+export interface IUpdateTaskRequest {
+  columnId: string;
+  title: string;
+  description: string;
+  subtasks: {
+    id: string;
     title: string;
     isCompleted: boolean;
   }[];
 }
 
-export interface IUpdateTaskRequest {
-  title?: string;
-  description?: string;
-  status?: string;
-  subtasks?: ISubtaskData[];
+interface ISubtaskData {
+  id: string;
+  taskId: string;
+  title: string;
+  isCompleted: boolean;
+}
+
+export interface ITaskFilters {
+  boardId?: string;
+  columnId?: string;
+  columnName?: string;
+  q?: string;
 }
 
 export interface EditTaskValues {
@@ -37,7 +62,7 @@ export interface EditTaskValues {
   status: string;
 
   subtasks: {
-    id?: number;
+    id?: string;
     title: string;
   }[];
 }

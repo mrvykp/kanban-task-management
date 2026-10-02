@@ -5,41 +5,51 @@ import type {
   IUpdateTaskRequest,
 } from "../types/taskData";
 
-import { deleteTask, updateTask } from "../services/taskServices";
+import { deleteTask, getTaskById, updateTask } from "../services/taskServices";
 
 import { useNotify } from "../hooks/useNotify";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import TaskEditModal from "./TaskEditModal";
 import TaskDetailsModal from "./TaskDetailsModal";
 import { Modal } from "antd";
+import type { IColumnData } from "../types/columnData";
 
 interface ITaskCardProps {
-  data: ITaskData;
-  boardId: string;
-  columns: string[];
+  task: ITaskData;
+  columns: IColumnData[];
 }
 
-const TaskCard: React.FC<ITaskCardProps> = ({ data, boardId, columns }) => {
+const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const notify = useNotify();
 
   const queryClient = useQueryClient();
 
+  const { data: taskDetails, isPending: taskDetailsLoading } = useQuery({
+    queryKey: queryKeys.task(task.id),
+    queryFn: () => getTaskById(task.id),
+
+    enabled: isModalOpen || isEditModalOpen,
+  });
+
   const updateTaskMutation = useMutation({
     mutationFn: ({
       taskId,
-      updates,
+      request,
     }: {
-      taskId: number;
-      updates: IUpdateTaskRequest;
-    }) => updateTask(boardId, taskId, updates),
+      taskId: string;
+      request: IUpdateTaskRequest;
+    }) => updateTask(taskId, request),
 
     onSuccess: async (updatedTask) => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.board(boardId),
+          queryKey: queryKeys.tasksByBoard(task.boardId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.task(task.id),
         }),
       ]);
 
@@ -56,22 +66,23 @@ const TaskCard: React.FC<ITaskCardProps> = ({ data, boardId, columns }) => {
   });
 
   const deleteTaskMutation = useMutation({
-    mutationFn: (taskId: number) => deleteTask(boardId, taskId),
+    mutationFn: (taskId: string) => deleteTask(taskId),
 
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.board(boardId),
+          queryKey: queryKeys.tasksByBoard(task.boardId),
         }),
-
-        queryClient.invalidateQueries({ queryKey: queryKeys.boards }),
+        queryClient.removeQueries({
+          queryKey: queryKeys.task(task.id),
+        }),
       ]);
 
       setIsModalOpen(false);
 
       notify.success(
         "Task deleted",
-        `"${data.title}" was deleted successfully.`,
+        `"${task.title}" was deleted successfully.`,
       );
     },
 
@@ -82,49 +93,67 @@ const TaskCard: React.FC<ITaskCardProps> = ({ data, boardId, columns }) => {
     },
   });
 
-  const numberOfSubtasks = data.subtasks.length;
+  const numberOfSubtasks = task.totalSubtasks;
 
-  const checkedCount = data.subtasks.filter(
-    (subtask) => subtask.isCompleted,
-  ).length;
+  // const checkedCount = data.subtasks.filter(
+  //   (subtask) => subtask.isCompleted,
+  // ).length;
 
   const showModal = () => {
     setIsModalOpen(true);
   };
 
-  const handleStatusChange = (value: string) => {
+  const handleStatusChange = (newColumnId: string) => {
+    if (!taskDetails) return;
+
+    const request: IUpdateTaskRequest = {
+      columnId: newColumnId,
+      title: taskDetails.title,
+      description: taskDetails.description,
+      subtasks: taskDetails.subtasks.map((subtask) => ({
+        id: subtask.id,
+        title: subtask.title,
+        isCompleted: subtask.isCompleted,
+      })),
+    };
+
     updateTaskMutation.mutate({
-      taskId: data.id,
-      updates: {
-        status: value,
-      },
+      taskId: task.id,
+      request,
     });
   };
 
-  const handleSubtaskChange = (checkedValues: (string | number)[]) => {
-    const updatedSubtasks = data.subtasks.map((subtask) => ({
-      ...subtask,
+  const handleSubtaskChange = (checkedValues: string[]) => {
+    if (!taskDetails) return;
 
+    const updatedSubtasks = taskDetails.subtasks.map((subtask) => ({
+      id: subtask.id,
+      title: subtask.title,
       isCompleted: checkedValues.includes(subtask.id),
     }));
 
+    const request: IUpdateTaskRequest = {
+      columnId: taskDetails.columnId,
+      title: taskDetails.title,
+      description: taskDetails.description,
+      subtasks: updatedSubtasks,
+    };
+
     updateTaskMutation.mutate({
-      taskId: data.id,
-      updates: {
-        subtasks: updatedSubtasks,
-      },
+      taskId: task.id,
+      request,
     });
   };
 
   const handleDeleteTask = () => {
     Modal.confirm({
       title: "Delete this task?",
-      content: `Are you sure you want to delete "${data.title}"`,
+      content: `Are you sure you want to delete "${task.title}"`,
       okText: "Delete",
       okType: "danger",
       cancelText: "Cancel",
 
-      onOk: () => deleteTaskMutation.mutateAsync(data.id),
+      onOk: () => deleteTaskMutation.mutateAsync(task.id),
     });
   };
 
@@ -133,40 +162,40 @@ const TaskCard: React.FC<ITaskCardProps> = ({ data, boardId, columns }) => {
     setIsEditModalOpen(true);
   };
 
-  const handleEditTask = (values: EditTaskValues) => {
-    const now = Date.now();
+  // const handleEditTask = (values: EditTaskValues) => {
+  //   const now = Date.now();
 
-    const updatedSubtasks = values.subtasks.map((subtask, index) => {
-      const existingSubtask = data.subtasks.find(
-        (item) => item.id === subtask.id,
-      );
+  //   const updatedSubtasks = values.subtasks.map((subtask, index) => {
+  //     const existingSubtask = task.subtasks.find(
+  //       (item) => item.id === subtask.id,
+  //     );
 
-      return {
-        id: subtask.id ?? now + index,
-        title: subtask.title,
-        isCompleted: existingSubtask?.isCompleted ?? false,
-      };
-    });
+  //     return {
+  //       id: subtask.id ?? now + index,
+  //       title: subtask.title,
+  //       isCompleted: existingSubtask?.isCompleted ?? false,
+  //     };
+  //   });
 
-    const updates: IUpdateTaskRequest = {
-      title: values.title,
-      description: values.description ?? "",
-      status: values.status,
-      subtasks: updatedSubtasks,
-    };
+  //   const updates: IUpdateTaskRequest = {
+  //     title: values.title,
+  //     description: values.description ?? "",
+  //     status: values.status,
+  //     subtasks: updatedSubtasks,
+  //   };
 
-    updateTaskMutation.mutate(
-      {
-        taskId: data.id,
-        updates,
-      },
-      {
-        onSuccess: () => {
-          setIsEditModalOpen(false);
-        },
-      },
-    );
-  };
+  //   updateTaskMutation.mutate(
+  //     {
+  //       taskId: data.id,
+  //       updates,
+  //     },
+  //     {
+  //       onSuccess: () => {
+  //         setIsEditModalOpen(false);
+  //       },
+  //     },
+  //   );
+  // };
 
   return (
     <>
@@ -190,7 +219,7 @@ const TaskCard: React.FC<ITaskCardProps> = ({ data, boardId, columns }) => {
             marginBottom: "8px",
           }}
         >
-          {data.title}
+          {task.title}
         </p>
 
         <p
@@ -200,13 +229,18 @@ const TaskCard: React.FC<ITaskCardProps> = ({ data, boardId, columns }) => {
             fontWeight: 600,
           }}
         >
-          {checkedCount} of {numberOfSubtasks}
+          {task.completedSubtasks} of {task.totalSubtasks} subtasks
         </p>
       </div>
-      {isModalOpen && (
+      {isModalOpen && taskDetailsLoading && (
+        <Modal open footer={null} onCancel={() => setIsModalOpen(false)}>
+          Loading task...
+        </Modal>
+      )}
+      {isModalOpen && taskDetails && (
         <TaskDetailsModal
           open={isModalOpen}
-          task={data}
+          task={taskDetails}
           columns={columns}
           onClose={() => setIsModalOpen(false)}
           onEdit={showEditModal}
@@ -215,14 +249,14 @@ const TaskCard: React.FC<ITaskCardProps> = ({ data, boardId, columns }) => {
           onSubtaskChange={handleSubtaskChange}
         />
       )}
-      <TaskEditModal
+      {/* <TaskEditModal
         open={isEditModalOpen}
         task={data}
         columns={columns}
         loading={updateTaskMutation.isPending}
         onCancel={() => setIsEditModalOpen(false)}
         onSubmit={handleEditTask}
-      />
+      /> */}
     </>
   );
 };

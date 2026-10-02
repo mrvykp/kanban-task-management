@@ -1,129 +1,38 @@
-import type { IBoardData } from "../types/boardData";
+import { api2 } from "../configuration/ApiConfig";
 import type {
+  ITaskDetails,
   ICreateTaskRequest,
   ITaskData,
   IUpdateTaskRequest,
+  ITaskFilters,
 } from "../types/taskData";
-import { getBoardById, updateBoard } from "./boardServices";
 
-export const createTask = async (
-  boardId: string,
-  taskData: ICreateTaskRequest,
-): Promise<ITaskData> => {
-  const board = await getBoardById(boardId);
+export const getTasks = async (filters: ITaskFilters = {}) => {
+  const response = await api2.get<ITaskData[]>("tasks", {
+    params: filters,
+  });
 
-  const now = Date.now();
-
-  const newTask: ITaskData = {
-    id: now,
-    title: taskData.title,
-    description: taskData.description,
-    status: taskData.status,
-    subtasks: taskData.subtasks.map((subtask, index) => ({
-      id: now + 1 + index,
-      isCompleted: false,
-      title: subtask.title,
-    })),
-  };
-
-  const updatedBoard: IBoardData = {
-    ...board,
-    columns: board.columns.map((column) =>
-      column.name === taskData.status
-        ? {
-            ...column,
-            tasks: [...column.tasks, newTask],
-          }
-        : column,
-    ),
-  };
-
-  await updateBoard(boardId, updatedBoard);
-
-  return newTask;
+  return response.data;
 };
 
-export const updateTask = async (
-  boardId: string,
-  taskId: number,
-  updates: IUpdateTaskRequest,
-): Promise<ITaskData> => {
-  const board = await getBoardById(boardId);
+export const getTaskById = async (id: string) => {
+  const response = await api2.get<ITaskDetails>(`tasks/${id}`);
 
-  let existingTask: ITaskData | undefined;
-  let sourceColumnName: string | undefined;
-
-  board.columns.forEach((column) => {
-    const task = column.tasks.find((task) => task.id === taskId);
-
-    if (task) {
-      existingTask = task;
-      sourceColumnName = column.name;
-    }
-  });
-  if (!existingTask || !sourceColumnName) {
-    throw new Error("Task not found");
-  }
-
-  const targetStatus = updates.status ?? existingTask.status;
-
-  const updatedTask: ITaskData = {
-    ...existingTask,
-    ...updates,
-    status: targetStatus,
-  };
-
-  let updatedColumns;
-
-  if (sourceColumnName === targetStatus) {
-    updatedColumns = board.columns.map((column) => {
-      if (column.name !== sourceColumnName) {
-        return column;
-      }
-      return {
-        ...column,
-        tasks: column.tasks.map((task) =>
-          task.id === taskId ? updatedTask : task,
-        ),
-      };
-    });
-  } else {
-    updatedColumns = board.columns.map((column) => {
-      if (column.name === sourceColumnName) {
-        return {
-          ...column,
-          tasks: column.tasks.filter((task) => task.id !== taskId),
-        };
-      }
-      if (column.name === targetStatus) {
-        return {
-          ...column,
-          tasks: [...column.tasks, updatedTask],
-        };
-      }
-      return column;
-    });
-  }
-
-  await updateBoard(boardId, {
-    name: board.name,
-    columns: updatedColumns,
-  });
-  return updatedTask;
+  return response.data;
 };
 
-export const deleteTask = async (
-  boardId: string,
-  taskId: number,
-): Promise<void> => {
-  const board = await getBoardById(boardId);
+export const createTask = async (task: ICreateTaskRequest) => {
+  const response = await api2.post<ITaskDetails>("tasks", task);
 
-  const updatedBoard: IBoardData = {
-    ...board,
-    columns: board.columns.map((column) => ({
-      ...column,
-      tasks: column.tasks.filter((task) => task.id !== taskId),
-    })),
-  };
-  await updateBoard(boardId, updatedBoard);
+  return response.data;
+};
+
+export const updateTask = async (taskId: string, task: IUpdateTaskRequest) => {
+  const response = await api2.put<ITaskDetails>(`tasks/${taskId}`, task);
+
+  return response.data;
+};
+
+export const deleteTask = async (taskId: string) => {
+  await api2.delete(`tasks/${taskId}`);
 };

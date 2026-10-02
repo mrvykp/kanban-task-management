@@ -13,7 +13,6 @@ import {
   Layout,
   Menu,
   Modal,
-  Select,
   type MenuProps,
 } from "antd";
 import logoLight from "../assets/logo-light.svg";
@@ -253,7 +252,6 @@ const Sidebar = ({ boards }: SidebarProps) => {
 
     form.setFieldsValue({
       name: board.name,
-      columns: board.columns.map((column) => column.name),
     });
 
     setIsModalOpen(true);
@@ -275,18 +273,18 @@ const Sidebar = ({ boards }: SidebarProps) => {
     if (editingBoard) {
       const request: IUpdateBoardRequest = {
         name: values.name,
-        columns: values.columns.map((column) => {
-          const trimmedName = column.trim();
+        // columns: values.columns.map((column) => {
+        //   const trimmedName = column.trim();
 
-          const existingColumn = editingBoard.columns.find(
-            (column) => column.name.toLowerCase() === trimmedName.toLowerCase(),
-          );
+        //   const existingColumn = editingBoard.columns.find(
+        //     (column) => column.name.toLowerCase() === trimmedName.toLowerCase(),
+        //   );
 
-          return {
-            name: trimmedName,
-            tasks: existingColumn?.tasks ?? [],
-          };
-        }),
+        //   return {
+        //     name: trimmedName,
+        //     tasks: existingColumn?.tasks ?? [],
+        //   };
+        // }),
       };
 
       updateBoardMutation.mutate({
@@ -299,9 +297,9 @@ const Sidebar = ({ boards }: SidebarProps) => {
 
     const request: ICreateBoardRequest = {
       name: values.name,
+
       columns: values.columns.map((column) => ({
-        name: column,
-        tasks: [],
+        name: column.trim(),
       })),
     };
 
