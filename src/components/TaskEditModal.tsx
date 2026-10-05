@@ -1,13 +1,14 @@
 import { Button, Form, Input, Modal, Select } from "antd";
-import type { EditTaskValues, ITaskData } from "../types/taskData";
+import type { EditTaskValues, ITaskDetails } from "../types/taskData";
 import { useEffect } from "react";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
+import type { IColumnData } from "../types/columnData";
 
 interface TaskEditModalProps {
   open: boolean;
-  task: ITaskData;
-  columns: string[];
-  loading?: boolean;
+  task: ITaskDetails;
+  columns: IColumnData[];
+  loading: boolean;
 
   onCancel: () => void;
   onSubmit: (values: EditTaskValues) => void;
@@ -27,8 +28,7 @@ const TaskEditModal = ({
       form.setFieldsValue({
         title: task.title,
         description: task.description,
-        status: task.status,
-
+        columnId: task.columnId,
         subtasks: task.subtasks.map((subtask) => ({
           id: subtask.id,
           title: subtask.title,
@@ -85,6 +85,7 @@ const TaskEditModal = ({
                       rules={[
                         {
                           required: true,
+                          whitespace: true,
                           message: "Please enter a subtask title",
                         },
                       ]}
@@ -116,7 +117,7 @@ const TaskEditModal = ({
 
         <Form.Item
           label="Status"
-          name="status"
+          name="columnId"
           rules={[
             {
               required: true,
@@ -126,8 +127,8 @@ const TaskEditModal = ({
         >
           <Select
             options={columns.map((column) => ({
-              value: column,
-              label: column.toUpperCase(),
+              value: column.id,
+              label: column.name.toUpperCase(),
             }))}
           />
         </Form.Item>
@@ -135,13 +136,13 @@ const TaskEditModal = ({
         <Button
           type="primary"
           htmlType="submit"
+          loading={loading}
           style={{
             width: "100%",
             height: "40px",
             borderRadius: "20px",
             backgroundColor: "#635FC7",
           }}
-          loading={loading}
         >
           Save Changes
         </Button>

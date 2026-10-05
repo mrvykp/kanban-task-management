@@ -59,7 +59,7 @@ export interface ITaskFilters {
 export interface EditTaskValues {
   title: string;
   description?: string;
-  status: string;
+  columnId: string;
 
   subtasks: {
     id?: string;
@@ -73,12 +73,14 @@ export interface TaskUpdateResult {
 }
 
 export interface ITaskTableRow {
-  task: ITaskData;
-  id: number;
+  id: string;
   boardId: string;
+  columnId: string;
+
   title: string;
   boardName: string;
   status: string;
+
   completedSubtasks: number;
   totalSubtasks: number;
 }

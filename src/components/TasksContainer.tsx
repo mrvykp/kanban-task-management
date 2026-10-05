@@ -7,7 +7,12 @@ import { queryKeys } from "../queryKeys";
 import { useNotify } from "../hooks/useNotify";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { createStyles } from "antd-style";
-import { getColumnsByBoard, updateColumn } from "../services/columnServices";
+import {
+  createColumn,
+  deleteColumn,
+  getColumnsByBoard,
+  updateColumn,
+} from "../services/columnServices";
 import { getTasks } from "../services/taskServices";
 
 const { Content } = Layout;
@@ -106,14 +111,23 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
         return existingColumn && existingColumn.name !== column.name;
       });
 
-      await Promise.all(
-        columnsToUpdate.map((column) =>
+      await Promise.all([
+        ...columnsToDelete.map((column) => deleteColumn(column.id)),
+
+        ...columnsToCreate.map((column) =>
+          createColumn({
+            boardId: board.id,
+            name: column.name,
+          }),
+        ),
+
+        ...columnsToUpdate.map((column) =>
           updateColumn(column.id!, {
             boardId: board.id,
             name: column.name,
           }),
         ),
-      );
+      ]);
     },
     onSuccess: async () => {
       await Promise.all([
@@ -130,7 +144,7 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
         }),
       ]);
 
-      notify.success("Board updated", "Changes saved successfully.");
+      notify.success("Columns updated", "Changes saved successfully.");
 
       form.resetFields();
       setIsModalOpen(false);
@@ -138,7 +152,7 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
 
     onError: (error) => {
       console.error("Failed to update board:", error);
-      notify.error("Failed to update board", "Please try again.");
+      notify.error("Column update failed", "Please try again.");
     },
   });
 

@@ -21,14 +21,32 @@ import type {
 import TaskDetailsModal from "../components/TaskDetailsModal";
 import TaskEditModal from "../components/TaskEditModal";
 import { useNotify } from "../hooks/useNotify";
-import { deleteTask, updateTask } from "../services/taskServices";
+import {
+  deleteTask,
+  getTaskById,
+  getTasks,
+  updateTask,
+} from "../services/taskServices";
 import { DeleteOutlined, EditOutlined, EyeOutlined } from "@ant-design/icons";
 import { useSearchParams } from "react-router-dom";
 import HeaderContainer from "../components/HeaderContainer";
+import { getColumnsByBoard } from "../services/columnServices";
+import {
+  createSubtask,
+  deleteSubtask,
+  updateSubtask,
+} from "../services/subtaskServices";
+import type { IUpdateSubtaskRequest } from "../types/subtaskData";
 
 interface SelectedTask {
   boardId: string;
-  taskId: number;
+  taskId: string;
+}
+
+interface EditTaskMutationVariables {
+  taskId: string;
+  boardId: string;
+  values: EditTaskValues;
 }
 
 const TaskListView = () => {
@@ -51,10 +69,36 @@ const TaskListView = () => {
   const queryClient = useQueryClient();
   const notify = useNotify();
 
+  //GET BOARDS
   const { data: boards = [] } = useQuery({
     queryKey: queryKeys.boards,
     queryFn: getAllBoards,
   });
+
+  //GET TASKS
+  const { data: tasks = [] } = useQuery({
+    queryKey: queryKeys.allTasks,
+    queryFn: () => getTasks(),
+  });
+
+  const { data: selectedTaskDetails, isPending: selectedTaskLoading } =
+    useQuery({
+      queryKey: queryKeys.task(selectedTask?.taskId ?? ""),
+
+      queryFn: () => getTaskById(selectedTask!.taskId),
+
+      enabled: !!selectedTask && (isDetailsModalOpen || isEditModalOpen),
+    });
+
+  const { data: selectedBoardColumns = [] } = useQuery({
+    queryKey: queryKeys.columns(selectedTask?.boardId ?? ""),
+
+    queryFn: () => getColumnsByBoard(selectedTask!.boardId),
+
+    enabled: !!selectedTask && (isDetailsModalOpen || isEditModalOpen),
+  });
+
+  const currentBoard = boards.find((board) => board.id === boardId);
 
   const boardOptions = boards.map((board) => ({
     label: board.name,
@@ -62,18 +106,123 @@ const TaskListView = () => {
   }));
 
   const statusOptions = useMemo(() => {
-    const statuses = boards.flatMap((board) =>
-      board.columns.map((column) => column.name),
-    );
-
-    const uniqueStatuses = [...new Set(statuses)];
+    const uniqueStatuses = [...new Set(tasks.map((task) => task.status))];
 
     return uniqueStatuses.map((status) => ({
       label: status,
       value: status,
     }));
-  }, [boards]);
+  }, [tasks]);
 
+  const boardNameMap = useMemo(
+    () => new Map(boards.map((board) => [board.id, board.name])),
+    [boards],
+  );
+
+  const tableData = useMemo<ITaskTableRow[]>(
+    () =>
+      tasks.map((task) => ({
+        id: task.id,
+        boardId: task.boardId,
+        columnId: task.columnId,
+
+        title: task.title,
+
+        boardName: boardNameMap.get(task.boardId) ?? "Unknown board",
+
+        status: task.status,
+        completedSubtasks: task.completedSubtasks,
+        totalSubtasks: task.totalSubtasks,
+      })),
+    [tasks, boardNameMap],
+  );
+
+  const filteredData = useMemo(() => {
+    return tableData.filter((task) => {
+      const matchesSearch = task.title
+        .toLowerCase()
+        .includes(taskListState.search.trim().toLowerCase());
+
+      const matchedBoard =
+        !taskListState.boardId || task.boardId === taskListState.boardId;
+
+      const matchesStatus =
+        !taskListState.status || task.status === taskListState.status;
+
+      return matchesSearch && matchedBoard && matchesStatus;
+    });
+  }, [
+    tableData,
+    taskListState.search,
+    taskListState.boardId,
+    taskListState.status,
+  ]);
+
+  const updateTaskMutation = useMutation({
+    mutationFn: ({
+      taskId,
+      updates,
+    }: {
+      taskId: string;
+      boardId: string;
+      updates: IUpdateTaskRequest;
+    }) => updateTask(taskId, updates),
+
+    onSuccess: async (_, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.allTasks,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tasksByBoard(variables.boardId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.task(variables.taskId),
+        }),
+      ]);
+
+      notify.success("Task updated", "Changes saved successfully.");
+    },
+    onError: () => {
+      notify.error("Update failed", "Please try again.");
+    },
+  });
+
+  const updateSubtaskMutation = useMutation({
+    mutationFn: ({
+      subtaskId,
+      request,
+    }: {
+      subtaskId: string;
+      request: IUpdateSubtaskRequest;
+    }) => updateSubtask(subtaskId, request),
+
+    onSuccess: async () => {
+      if (!selectedTask) return;
+
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.allTasks,
+        }),
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tasksByBoard(selectedTask.boardId),
+        }),
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.task(selectedTask.taskId),
+        }),
+      ]);
+    },
+
+    onError: (error) => {
+      console.error("Failed to update subtask:", error);
+
+      notify.error("Subtask update failed", "Please try again.");
+    },
+  });
+
+  ////BURDA KALDIM
   const columns: TableColumnsType<ITaskTableRow> = [
     {
       title: "Task Title",
@@ -159,93 +308,9 @@ const TaskListView = () => {
     },
   ];
 
-  const tableData = useMemo(
-    () =>
-      boards.flatMap((board) =>
-        board.columns.flatMap((column) =>
-          column.tasks.map((task) => ({
-            id: task.id,
-            boardId: board.id,
-            title: task.title,
-            boardName: board.name,
-            status: column.name,
-
-            completedSubtasks: task.subtasks.filter(
-              (subtask) => subtask.isCompleted,
-            ).length,
-
-            totalSubtasks: task.subtasks.length,
-
-            task: task,
-          })),
-        ),
-      ),
-    [boards],
-  );
-
-  const filteredData = useMemo(() => {
-    return tableData.filter((task) => {
-      const matchesSearch = task.title
-        .toLowerCase()
-        .includes(taskListState.search.trim().toLowerCase());
-
-      const matchedBoard =
-        !taskListState.boardId || task.boardId === taskListState.boardId;
-
-      const matchesStatus =
-        !taskListState.status || task.status === taskListState.status;
-
-      return matchesSearch && matchedBoard && matchesStatus;
-    });
-  }, [
-    tableData,
-    taskListState.search,
-    taskListState.boardId,
-    taskListState.status,
-  ]);
-
   const selectedBoard = selectedTask
     ? boards.find((board) => board.id === selectedTask.boardId)
     : undefined;
-
-  const currentBoard = boards.find((board) => board.id === boardId);
-
-  const currentTask = selectedBoard
-    ? selectedBoard.columns
-        .flatMap((column) => column.tasks)
-        .find((task) => task.id === selectedTask?.taskId)
-    : undefined;
-
-  const selectedBoardColumns =
-    selectedBoard?.columns.map((column) => column.name) ?? [];
-
-  const updateTaskMutation = useMutation({
-    mutationFn: ({
-      boardId,
-      taskId,
-      updates,
-    }: {
-      boardId: string;
-      taskId: number;
-      updates: IUpdateTaskRequest;
-    }) => updateTask(boardId, taskId, updates),
-
-    onSuccess: async (_, variables) => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.boards,
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.board(variables.boardId),
-        }),
-      ]);
-
-      notify.success("Task updated", "Changes saved successfully.");
-    },
-    onError: () => {
-      notify.error("Update failed", "Please try again.");
-    },
-  });
 
   const handleDeleteFromTable = (record: ITaskTableRow) => {
     Modal.confirm({
@@ -263,13 +328,26 @@ const TaskListView = () => {
     });
   };
 
-  const handleStatusChange = (status: string) => {
-    if (!selectedTask || !currentTask) return;
+  const handleStatusChange = (newColumnId: string) => {
+    if (!selectedTask || !selectedTaskDetails) {
+      return;
+    }
+
+    const request: IUpdateTaskRequest = {
+      columnId: newColumnId,
+      title: selectedTaskDetails.title,
+      description: selectedTaskDetails.description,
+      subtasks: selectedTaskDetails.subtasks.map((subtask) => ({
+        id: subtask.id,
+        title: subtask.title,
+        isCompleted: subtask.isCompleted,
+      })),
+    };
 
     updateTaskMutation.mutate({
+      taskId: selectedTask.taskId,
       boardId: selectedTask.boardId,
-      taskId: currentTask.id,
-      updates: { status },
+      request,
     });
   };
 
@@ -292,24 +370,125 @@ const TaskListView = () => {
   };
 
   const deleteTaskMutation = useMutation({
-    mutationFn: ({ boardId, taskId }: { boardId: string; taskId: number }) =>
-      deleteTask(boardId, taskId),
+    mutationFn: ({ taskId }: { taskId: string; boardId: string }) =>
+      deleteTask(taskId),
 
     onSuccess: async (_, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.boards,
+          queryKey: queryKeys.allTasks,
         }),
 
         queryClient.invalidateQueries({
-          queryKey: queryKeys.board(variables.boardId),
+          queryKey: queryKeys.tasksByBoard(variables.boardId),
         }),
       ]);
+
+      queryClient.removeQueries({
+        queryKey: queryKeys.task(variables.taskId),
+      });
 
       setIsDetailsModalOpen(false);
       setSelectedTask(null);
 
       notify.success("Task deleted", "Task was deleted successfully.");
+    },
+  });
+
+  const editTaskMutation = useMutation({
+    mutationFn: async (values: EditTaskValues) => {
+      if (!selectedTaskDetails) {
+        throw new Error("Task details are not loaded");
+      }
+
+      const submittedSubtasks = values.subtasks ?? [];
+
+      const submittedIds = new Set(
+        submittedSubtasks
+          .filter((subtask) => subtask.id)
+          .map((subtask) => subtask.id as string),
+      );
+
+      const subtasksToDelete = selectedTaskDetails.subtasks.filter(
+        (subtask) => !submittedIds.has(subtask.id),
+      );
+
+      const subtasksToCreate = submittedSubtasks.filter(
+        (subtask) => !subtask.id,
+      );
+
+      const subtasksToUpdate = submittedSubtasks.filter((subtask) => {
+        if (!subtask.id) return false;
+
+        const existing = selectedTaskDetails.subtasks.find(
+          (item) => item.id === subtask.id,
+        );
+
+        return existing && existing.title !== subtask.title.trim();
+      });
+
+      const taskRequest: IUpdateTaskRequest = {
+        columnId: values.columnId,
+        title: values.title.trim(),
+        description: values.description ?? "",
+
+        subtasks: selectedTaskDetails.subtasks.map((subtask) => ({
+          id: subtask.id,
+          title: subtask.title,
+          isCompleted: subtask.isCompleted,
+        })),
+      };
+      await updateTask(task.id, taskRequest);
+
+      await Promise.all([
+        ...subtasksToDelete.map((subtask) => deleteSubtask(subtask.id)),
+
+        ...subtasksToCreate.map((subtask) =>
+          createSubtask({
+            taskId: task.id,
+            title: subtask.title.trim(),
+            isCompleted: false,
+          }),
+        ),
+
+        ...subtasksToUpdate.map((subtask) => {
+          const existing = selectedTaskDetails.subtasks.find(
+            (item) => item.id === subtask.id,
+          )!;
+
+          return updateSubtask(subtask.id!, {
+            taskId: task.id,
+            title: subtask.title.trim(),
+            isCompleted: existing.isCompleted,
+          });
+        }),
+      ]);
+    },
+
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tasksByBoard(task.boardId),
+        }),
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.task(task.id),
+        }),
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.subtasks(task.id),
+        }),
+      ]);
+
+      setIsEditModalOpen(false);
+
+      notify.success("Task updated", "Changes saved successfully.");
+    },
+
+    onError: (error) => {
+      console.error("Failed to edit task:", error);
+
+      notify.error("Task update failed", "Please try again.");
     },
   });
 
@@ -415,10 +594,10 @@ const TaskListView = () => {
           }}
         />
 
-        {currentTask && (
+        {selectedTaskDetails && isDetailsModalOpen && (
           <TaskDetailsModal
             open={isDetailsModalOpen}
-            task={currentTask}
+            task={selectedTaskDetails}
             columns={selectedBoardColumns}
             onClose={() => setIsDetailsModalOpen(false)}
             onStatusChange={handleStatusChange}
@@ -426,10 +605,10 @@ const TaskListView = () => {
             showActions={false}
           />
         )}
-        {currentTask && (
+        {selectedTaskDetails && isDetailsModalOpen && (
           <TaskEditModal
             open={isEditModalOpen}
-            task={currentTask}
+            task={selectedTaskDetails}
             columns={selectedBoardColumns}
             loading={updateTaskMutation.isPending}
             onCancel={() => setIsEditModalOpen(false)}

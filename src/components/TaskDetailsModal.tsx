@@ -6,7 +6,7 @@ import {
   type CheckboxOptionType,
   type MenuProps,
 } from "antd";
-import type { ITaskData, ITaskDetails } from "../types/taskData";
+import type { ITaskDetails } from "../types/taskData";
 import { MoreOutlined } from "@ant-design/icons";
 import type { IColumnData } from "../types/columnData";
 
@@ -19,7 +19,7 @@ interface TaskDetailsModalProps {
   onEdit?: () => void;
   onDelete?: () => void;
 
-  onStatusChange: (status: string) => void;
+  onStatusChange: (columnId: string) => void;
   onSubtaskChange: (checkedValues: string[]) => void;
 
   showActions?: boolean;

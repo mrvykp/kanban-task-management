@@ -14,6 +14,12 @@ import TaskEditModal from "./TaskEditModal";
 import TaskDetailsModal from "./TaskDetailsModal";
 import { Modal } from "antd";
 import type { IColumnData } from "../types/columnData";
+import {
+  createSubtask,
+  deleteSubtask,
+  updateSubtask,
+} from "../services/subtaskServices";
+import type { IUpdateSubtaskRequest } from "../types/subtaskData";
 
 interface ITaskCardProps {
   task: ITaskData;
@@ -93,11 +99,132 @@ const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
     },
   });
 
-  const numberOfSubtasks = task.totalSubtasks;
+  const updateSubtaskMutation = useMutation({
+    mutationFn: ({
+      subtaskId,
+      request,
+    }: {
+      subtaskId: string;
+      request: IUpdateSubtaskRequest;
+    }) => updateSubtask(subtaskId, request),
 
-  // const checkedCount = data.subtasks.filter(
-  //   (subtask) => subtask.isCompleted,
-  // ).length;
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.task(task.id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tasksByBoard(task.boardId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.subtasks(task.id),
+        }),
+      ]);
+    },
+
+    onError: (error) => {
+      console.log("Failed to update subtask:", error);
+
+      notify.error("Subtask update failed", "Please try again.");
+    },
+  });
+
+  const editTaskMutation = useMutation({
+    mutationFn: async (values: EditTaskValues) => {
+      if (!taskDetails) {
+        throw new Error("Task details are not loaded");
+      }
+
+      const submittedSubtasks = values.subtasks ?? [];
+
+      const submittedIds = new Set(
+        submittedSubtasks
+          .filter((subtask) => subtask.id)
+          .map((subtask) => subtask.id as string),
+      );
+
+      const subtasksToDelete = taskDetails.subtasks.filter(
+        (subtask) => !submittedIds.has(subtask.id),
+      );
+
+      const subtasksToCreate = submittedSubtasks.filter(
+        (subtask) => !subtask.id,
+      );
+
+      const subtasksToUpdate = submittedSubtasks.filter((subtask) => {
+        if (!subtask.id) return false;
+
+        const existing = taskDetails.subtasks.find(
+          (item) => item.id === subtask.id,
+        );
+
+        return existing && existing.title !== subtask.title.trim();
+      });
+
+      const taskRequest: IUpdateTaskRequest = {
+        columnId: values.columnId,
+        title: values.title.trim(),
+        description: values.description ?? "",
+
+        subtasks: taskDetails.subtasks.map((subtask) => ({
+          id: subtask.id,
+          title: subtask.title,
+          isCompleted: subtask.isCompleted,
+        })),
+      };
+      await updateTask(task.id, taskRequest);
+
+      await Promise.all([
+        ...subtasksToDelete.map((subtask) => deleteSubtask(subtask.id)),
+
+        ...subtasksToCreate.map((subtask) =>
+          createSubtask({
+            taskId: task.id,
+            title: subtask.title.trim(),
+            isCompleted: false,
+          }),
+        ),
+
+        ...subtasksToUpdate.map((subtask) => {
+          const existing = taskDetails.subtasks.find(
+            (item) => item.id === subtask.id,
+          )!;
+
+          return updateSubtask(subtask.id!, {
+            taskId: task.id,
+            title: subtask.title.trim(),
+            isCompleted: existing.isCompleted,
+          });
+        }),
+      ]);
+    },
+
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tasksByBoard(task.boardId),
+        }),
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.task(task.id),
+        }),
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.subtasks(task.id),
+        }),
+      ]);
+
+      setIsEditModalOpen(false);
+
+      notify.success("Task updated", "Changes saved successfully.");
+    },
+
+    onError: (error) => {
+      console.error("Failed to edit task:", error);
+
+      notify.error("Task update failed", "Please try again.");
+    },
+  });
 
   const showModal = () => {
     setIsModalOpen(true);
@@ -126,22 +253,19 @@ const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
   const handleSubtaskChange = (checkedValues: string[]) => {
     if (!taskDetails) return;
 
-    const updatedSubtasks = taskDetails.subtasks.map((subtask) => ({
-      id: subtask.id,
-      title: subtask.title,
-      isCompleted: checkedValues.includes(subtask.id),
-    }));
+    const changedSubtasks = taskDetails.subtasks.filter(
+      (subtask) => checkedValues.includes(subtask.id) !== subtask.isCompleted,
+    );
 
-    const request: IUpdateTaskRequest = {
-      columnId: taskDetails.columnId,
-      title: taskDetails.title,
-      description: taskDetails.description,
-      subtasks: updatedSubtasks,
-    };
-
-    updateTaskMutation.mutate({
-      taskId: task.id,
-      request,
+    changedSubtasks.forEach((subtask) => {
+      updateSubtaskMutation.mutate({
+        subtaskId: subtask.id,
+        request: {
+          taskId: task.id,
+          title: subtask.title,
+          isCompleted: checkedValues.includes(subtask.id),
+        },
+      });
     });
   };
 
@@ -162,40 +286,9 @@ const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
     setIsEditModalOpen(true);
   };
 
-  // const handleEditTask = (values: EditTaskValues) => {
-  //   const now = Date.now();
-
-  //   const updatedSubtasks = values.subtasks.map((subtask, index) => {
-  //     const existingSubtask = task.subtasks.find(
-  //       (item) => item.id === subtask.id,
-  //     );
-
-  //     return {
-  //       id: subtask.id ?? now + index,
-  //       title: subtask.title,
-  //       isCompleted: existingSubtask?.isCompleted ?? false,
-  //     };
-  //   });
-
-  //   const updates: IUpdateTaskRequest = {
-  //     title: values.title,
-  //     description: values.description ?? "",
-  //     status: values.status,
-  //     subtasks: updatedSubtasks,
-  //   };
-
-  //   updateTaskMutation.mutate(
-  //     {
-  //       taskId: data.id,
-  //       updates,
-  //     },
-  //     {
-  //       onSuccess: () => {
-  //         setIsEditModalOpen(false);
-  //       },
-  //     },
-  //   );
-  // };
+  const handleEditTask = (values: EditTaskValues) => {
+    editTaskMutation.mutate(values);
+  };
 
   return (
     <>
@@ -249,14 +342,16 @@ const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
           onSubtaskChange={handleSubtaskChange}
         />
       )}
-      {/* <TaskEditModal
-        open={isEditModalOpen}
-        task={data}
-        columns={columns}
-        loading={updateTaskMutation.isPending}
-        onCancel={() => setIsEditModalOpen(false)}
-        onSubmit={handleEditTask}
-      /> */}
+      {isEditModalOpen && taskDetails && (
+        <TaskEditModal
+          open={isEditModalOpen}
+          task={taskDetails}
+          columns={columns}
+          loading={editTaskMutation.isPending}
+          onCancel={() => setIsEditModalOpen(false)}
+          onSubmit={handleEditTask}
+        />
+      )}
     </>
   );
 };

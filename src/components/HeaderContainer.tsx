@@ -75,7 +75,11 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
     onSuccess: async (newTask) => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.tasksByColumn(newTask.columnId),
+          queryKey: queryKeys.tasksByBoard(board.id),
+        }),
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.allTasks,
         }),
 
         queryClient.invalidateQueries({

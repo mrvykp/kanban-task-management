@@ -1,4 +1,4 @@
-import type { ITaskData } from "./taskData";
+import type { IColumnDetails } from "./columnData";
 
 export interface IBoardData {
   id: string;
@@ -8,14 +8,7 @@ export interface IBoardData {
 export interface IBoardDetails {
   id: string;
   name: string;
-  columns: IColumnData[];
-}
-
-interface IColumnData {
-  id: string;
-  boardId: string;
-  name: string;
-  taskCount: number;
+  columns: IColumnDetails[];
 }
 
 export interface ICreateBoardRequest {
@@ -29,8 +22,4 @@ export interface ICreateBoardColumnRequest {
 
 export interface IUpdateBoardRequest {
   name: string;
-}
-
-export interface IListBoardsResponse {
-  tasks: IBoardData[];
 }

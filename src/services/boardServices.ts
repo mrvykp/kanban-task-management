@@ -1,4 +1,4 @@
-import { api, api2 } from "../configuration/ApiConfig";
+import { api2 } from "../configuration/ApiConfig";
 import type {
   IBoardData,
   IBoardDetails,
@@ -13,7 +13,7 @@ export const getAllBoards = async () => {
 };
 
 export const getBoardById = async (id: string) => {
-  const response = await api2.get<IBoardData>(`boards/${id}`);
+  const response = await api2.get<IBoardDetails>(`boards/${id}`);
   return response.data;
 };
 
