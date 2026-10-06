@@ -6,11 +6,15 @@ import { getAllBoards, getBoardById } from "../services/boardServices";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
+import { useBoardStore } from "../stores/boardStore";
+import { useEffect } from "react";
 
 const BoardPage = () => {
   const { boardId } = useParams();
 
-  // const selectedBoard = boards.find((board) => String(board.id) === boardId);
+  const setBoards = useBoardStore((state) => state.setBoards);
+
+  const setSelectedBoard = useBoardStore((state) => state.setSelectedBoard);
 
   const {
     data: boards = [],
@@ -32,6 +36,14 @@ const BoardPage = () => {
     enabled: !!boardId,
   });
 
+  useEffect(() => {
+    setBoards(boards);
+  }, [boards, setBoards]);
+
+  useEffect(() => {
+    setSelectedBoard(selectedBoard ?? null);
+  }, [selectedBoard, setSelectedBoard]);
+
   if (boardsLoading || boardLoading) {
     return <p>Loading...</p>;
   }
@@ -50,15 +62,15 @@ const BoardPage = () => {
         overflow: "hidden",
       }}
     >
-      <Sidebar boards={boards} />
+      <Sidebar />
       <Layout
         style={{
           height: "100vh",
           overflow: "hidden",
         }}
       >
-        <HeaderContainer board={selectedBoard} view="kanban" />
-        <TasksContainer board={selectedBoard} />
+        <HeaderContainer view="kanban" />
+        <TasksContainer />
       </Layout>
     </Layout>
   );

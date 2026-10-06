@@ -1,6 +1,4 @@
 import { Button, Col, Form, Input, Layout, Modal, Row, theme } from "antd";
-import TaskCard from "./TaskCard";
-import type { IBoardData } from "../types/boardData";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
@@ -13,7 +11,8 @@ import {
   getColumnsByBoard,
   updateColumn,
 } from "../services/columnServices";
-import { getTasks } from "../services/taskServices";
+import { useBoardStore } from "../stores/boardStore";
+import TaskColumn from "./TaskColumn";
 
 const { Content } = Layout;
 
@@ -39,10 +38,6 @@ const useStyles = createStyles((props) => {
   };
 });
 
-interface TaskContainerProps {
-  board: IBoardData;
-}
-
 interface ColumnFormValue {
   id?: string;
   name: string;
@@ -52,7 +47,7 @@ interface ColumnFormValues {
   columns: ColumnFormValue[];
 }
 
-const TasksContainer = ({ board }: TaskContainerProps) => {
+const TasksContainer = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const [form] = Form.useForm();
@@ -60,26 +55,23 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
   const notify = useNotify();
   const { styles } = useStyles();
 
+  const selectedBoard = useBoardStore((state) => state.selectedBoard);
+
   const {
     token: { colorBgContainer },
   } = theme.useToken();
+
+  const boardId = selectedBoard?.id ?? "";
 
   const {
     data: columns = [],
     isPending: columnsLoading,
     isError: columnsError,
   } = useQuery({
-    queryKey: queryKeys.columns(board.id),
-    queryFn: () => getColumnsByBoard(board.id),
-  });
+    queryKey: queryKeys.columns(boardId),
+    queryFn: () => getColumnsByBoard(boardId),
 
-  const {
-    data: tasks = [],
-    isPending: tasksLoading,
-    isError: tasksError,
-  } = useQuery({
-    queryKey: queryKeys.tasksByBoard(board.id),
-    queryFn: () => getTasks({ boardId: board.id }),
+    enabled: !!selectedBoard,
   });
 
   const saveColumnsMutation = useMutation({
@@ -116,14 +108,14 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
 
         ...columnsToCreate.map((column) =>
           createColumn({
-            boardId: board.id,
+            boardId: boardId,
             name: column.name,
           }),
         ),
 
         ...columnsToUpdate.map((column) =>
           updateColumn(column.id!, {
-            boardId: board.id,
+            boardId: boardId,
             name: column.name,
           }),
         ),
@@ -132,15 +124,15 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.columns(board.id),
+          queryKey: queryKeys.columns(boardId),
         }),
 
         queryClient.invalidateQueries({
-          queryKey: queryKeys.tasksByBoard(board.id),
+          queryKey: queryKeys.tasksByBoard(boardId),
         }),
 
         queryClient.invalidateQueries({
-          queryKey: queryKeys.board(board.id),
+          queryKey: queryKeys.board(boardId),
         }),
       ]);
 
@@ -156,7 +148,9 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
     },
   });
 
-  const columnNamesKey = columns.map((column) => column.id).join("|");
+  if (!selectedBoard) {
+    return null;
+  }
 
   const showEditModal = () => {
     form.setFieldsValue({
@@ -178,11 +172,11 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
     saveColumnsMutation.mutate(values.columns);
   };
 
-  if (columnsLoading || tasksLoading) {
+  if (columnsLoading) {
     return <Content>Loading...</Content>;
   }
 
-  if (columnsError || tasksError) {
+  if (columnsError) {
     return <Content>Failed to load board data.</Content>;
   }
 
@@ -200,22 +194,14 @@ const TasksContainer = ({ board }: TaskContainerProps) => {
       <Row>
         <Col flex="0 0 80%">
           <Row gutter={[16, 24]}>
-            {columns.map((column) => {
-              const columnTasks = tasks.filter(
-                (task) => task.columnId === column.id,
-              );
-
-              return (
-                <Col key={column.id} lg={8} sm={12} xs={24}>
-                  <p style={{ color: "grey", fontSize: "11px" }}>
-                    {column.name.toUpperCase()} ({columnTasks.length})
-                  </p>
-                  {columnTasks.map((task) => (
-                    <TaskCard key={task.id} task={task} columns={columns} />
-                  ))}
-                </Col>
-              );
-            })}
+            {columns.map((column) => (
+              <TaskColumn
+                key={column.id}
+                boardId={boardId}
+                column={column}
+                columns={columns}
+              />
+            ))}
           </Row>
         </Col>
 

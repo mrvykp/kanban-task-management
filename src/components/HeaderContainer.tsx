@@ -14,7 +14,6 @@ import Title from "antd/es/typography/Title";
 import { useState } from "react";
 import { createStyles } from "antd-style";
 import TextArea from "antd/es/input/TextArea";
-import type { IBoardData } from "../types/boardData";
 import type { ICreateTaskRequest } from "../types/taskData";
 import { createTask } from "../services/taskServices";
 import { useNotify } from "../hooks/useNotify";
@@ -22,51 +21,57 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import { useNavigate } from "react-router-dom";
 import { getColumnsByBoard } from "../services/columnServices";
+import { useBoardStore } from "../stores/boardStore";
 
 const { Header } = Layout;
 
+const useStyles = createStyles((props) => {
+  const { css, cssVar } = props;
+  return {
+    dynamicDeleteButton: css`
+      position: relative;
+      top: ${cssVar.marginXXS};
+      margin: 0 ${cssVar.marginXS};
+      color: #999;
+      font-size: 24px;
+      cursor: pointer;
+      transition: all ${cssVar.motionDurationSlow} ease;
+      &:hover {
+        color: #777;
+      }
+      &[disabled] {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+    `,
+  };
+});
+
 interface HeaderProps {
-  board: IBoardData;
   view: "kanban" | "tasks";
 }
 
-const HeaderContainer = ({ board, view }: HeaderProps) => {
+const HeaderContainer = ({ view }: HeaderProps) => {
   const [form] = Form.useForm();
   const notify = useNotify();
+
+  const selectedBoard = useBoardStore((state) => state.selectedBoard);
 
   const navigate = useNavigate();
 
   const queryClient = useQueryClient();
 
-  const useStyles = createStyles((props) => {
-    const { css, cssVar } = props;
-    return {
-      dynamicDeleteButton: css`
-        position: relative;
-        top: ${cssVar.marginXXS};
-        margin: 0 ${cssVar.marginXS};
-        color: #999;
-        font-size: 24px;
-        cursor: pointer;
-        transition: all ${cssVar.motionDurationSlow} ease;
-        &:hover {
-          color: #777;
-        }
-        &[disabled] {
-          cursor: not-allowed;
-          opacity: 0.5;
-        }
-      `,
-    };
-  });
-
   const { styles } = useStyles();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const boardId = selectedBoard?.id ?? "";
+
   const { data: columns = [], isPending: columnsLoading } = useQuery({
-    queryKey: queryKeys.columns(board.id),
-    queryFn: () => getColumnsByBoard(board.id),
+    queryKey: queryKeys.columns(boardId),
+    queryFn: () => getColumnsByBoard(boardId),
+
+    enabled: !!selectedBoard,
   });
 
   const createTaskMutation = useMutation({
@@ -75,7 +80,7 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
     onSuccess: async (newTask) => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.tasksByBoard(board.id),
+          queryKey: queryKeys.tasksByColumn(newTask.columnId),
         }),
 
         queryClient.invalidateQueries({
@@ -83,7 +88,7 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
         }),
 
         queryClient.invalidateQueries({
-          queryKey: queryKeys.columns(board.id),
+          queryKey: queryKeys.columns(boardId),
         }),
       ]);
 
@@ -102,6 +107,10 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
       notify.error("Task creation failed", "Please try again.");
     },
   });
+
+  if (!selectedBoard) {
+    return null;
+  }
 
   const showModal = () => {
     setIsModalOpen(true);
@@ -141,7 +150,7 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
               margin: 0,
             }}
           >
-            {view === "kanban" ? board?.name : "Task List"}
+            {view === "kanban" ? selectedBoard?.name : "Task List"}
           </Title>
         </Col>
         <Col
@@ -164,12 +173,12 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
               { label: "Tasks View", value: "tasks" },
             ]}
             onChange={(value) => {
-              if (value === "kanban" && board) {
-                navigate(`/boards/${board.id}`);
+              if (value === "kanban" && selectedBoard) {
+                navigate(`/boards/${selectedBoard.id}`);
               }
 
-              if (value === "tasks" && board) {
-                navigate(`/tasks?boardId=${board.id}`);
+              if (value === "tasks" && selectedBoard) {
+                navigate(`/tasks?boardId=${selectedBoard.id}`);
               }
             }}
           />
@@ -238,9 +247,9 @@ const HeaderContainer = ({ board, view }: HeaderProps) => {
           <Form.List name="subtasks">
             {(fields, { add, remove }, { errors }) => (
               <>
-                {fields.map((field, index) => (
+                {fields.map(({ key, ...field }, index) => (
                   <Form.Item
-                    key={field.key}
+                    key={key}
                     style={{
                       marginBottom: "12px",
                     }}

@@ -50,14 +50,23 @@ const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
     }) => updateTask(taskId, request),
 
     onSuccess: async (updatedTask) => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.tasksByBoard(task.boardId),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.task(task.id),
-        }),
-      ]);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.tasksByColumn(task.columnId),
+      });
+
+      if (updatedTask.columnId !== task.columnId) {
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.tasksByColumn(updatedTask.columnId),
+        });
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.task(task.id),
+      });
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.allTasks,
+      });
 
       notify.success(
         `"${updatedTask.title}" updated`,
@@ -77,12 +86,17 @@ const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.tasksByBoard(task.boardId),
+          queryKey: queryKeys.tasksByColumn(task.columnId),
         }),
-        queryClient.removeQueries({
-          queryKey: queryKeys.task(task.id),
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.allTasks,
         }),
       ]);
+
+      queryClient.removeQueries({
+        queryKey: queryKeys.task(task.id),
+      });
 
       setIsModalOpen(false);
 
@@ -114,10 +128,10 @@ const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
           queryKey: queryKeys.task(task.id),
         }),
         queryClient.invalidateQueries({
-          queryKey: queryKeys.tasksByBoard(task.boardId),
+          queryKey: queryKeys.tasksByColumn(task.columnId),
         }),
         queryClient.invalidateQueries({
-          queryKey: queryKeys.subtasks(task.id),
+          queryKey: queryKeys.allTasks,
         }),
       ]);
     },
@@ -172,7 +186,8 @@ const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
           isCompleted: subtask.isCompleted,
         })),
       };
-      await updateTask(task.id, taskRequest);
+
+      const updatedTask = await updateTask(task.id, taskRequest);
 
       await Promise.all([
         ...subtasksToDelete.map((subtask) => deleteSubtask(subtask.id)),
@@ -197,12 +212,14 @@ const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
           });
         }),
       ]);
+
+      return updatedTask;
     },
 
-    onSuccess: async () => {
+    onSuccess: async (updatedTask) => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.tasksByBoard(task.boardId),
+          queryKey: queryKeys.tasksByColumn(task.columnId),
         }),
 
         queryClient.invalidateQueries({
@@ -210,10 +227,15 @@ const TaskCard: React.FC<ITaskCardProps> = ({ task, columns }) => {
         }),
 
         queryClient.invalidateQueries({
-          queryKey: queryKeys.subtasks(task.id),
+          queryKey: queryKeys.allTasks,
         }),
       ]);
 
+      if (updatedTask.columnId !== task.columnId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tasksByColumn(updatedTask.columnId),
+        });
+      }
       setIsEditModalOpen(false);
 
       notify.success("Task updated", "Changes saved successfully.");

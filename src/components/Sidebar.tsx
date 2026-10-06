@@ -33,6 +33,7 @@ import {
 import { useNotify } from "../hooks/useNotify";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
+import { useBoardStore } from "../stores/boardStore";
 
 const { Sider } = Layout;
 
@@ -58,11 +59,7 @@ const useStyles = createStyles((props) => {
   };
 });
 
-interface SidebarProps {
-  boards: IBoardData[];
-}
-
-const Sidebar = ({ boards }: SidebarProps) => {
+const Sidebar = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBoard, setEditingBoard] = useState<IBoardData | null>(null);
@@ -71,6 +68,8 @@ const Sidebar = ({ boards }: SidebarProps) => {
   const { boardId } = useParams();
   const { styles } = useStyles();
   const notify = useNotify();
+
+  const boards = useBoardStore((state) => state.boards);
 
   const queryClient = useQueryClient();
 

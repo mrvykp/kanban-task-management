@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { queryKeys } from "../queryKeys";
-import { getAllBoards } from "../services/boardServices";
+
 import { useMemo, useState } from "react";
+
 import {
   Button,
   Input,
@@ -12,31 +12,44 @@ import {
   Tooltip,
   type TableColumnsType,
 } from "antd";
-import type {
-  EditTaskValues,
-  ITaskTableRow,
-  IUpdateTaskRequest,
-  TaskListState,
-} from "../types/taskData";
-import TaskDetailsModal from "../components/TaskDetailsModal";
-import TaskEditModal from "../components/TaskEditModal";
-import { useNotify } from "../hooks/useNotify";
+
+import { DeleteOutlined, EditOutlined, EyeOutlined } from "@ant-design/icons";
+
+import { useSearchParams } from "react-router-dom";
+
+import { queryKeys } from "../queryKeys";
+
+import { getAllBoards } from "../services/boardServices";
+
 import {
   deleteTask,
   getTaskById,
   getTasks,
   updateTask,
 } from "../services/taskServices";
-import { DeleteOutlined, EditOutlined, EyeOutlined } from "@ant-design/icons";
-import { useSearchParams } from "react-router-dom";
-import HeaderContainer from "../components/HeaderContainer";
-import { getColumnsByBoard } from "../services/columnServices";
+
 import {
   createSubtask,
   deleteSubtask,
   updateSubtask,
 } from "../services/subtaskServices";
+
+import { getColumnsByBoard } from "../services/columnServices";
+
+import type {
+  EditTaskValues,
+  ITaskTableRow,
+  IUpdateTaskRequest,
+  TaskListState,
+} from "../types/taskData";
+
 import type { IUpdateSubtaskRequest } from "../types/subtaskData";
+
+import TaskDetailsModal from "../components/TaskDetailsModal";
+import TaskEditModal from "../components/TaskEditModal";
+import HeaderContainer from "../components/HeaderContainer";
+
+import { useNotify } from "../hooks/useNotify";
 
 interface SelectedTask {
   boardId: string;
@@ -51,8 +64,11 @@ interface EditTaskMutationVariables {
 
 const TaskListView = () => {
   const [selectedTask, setSelectedTask] = useState<SelectedTask | null>(null);
+
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+
   const [searchParams] = useSearchParams();
 
   const boardId = searchParams.get("boardId");
@@ -66,16 +82,15 @@ const TaskListView = () => {
     sortField: undefined,
     sortOrder: undefined,
   });
+
   const queryClient = useQueryClient();
   const notify = useNotify();
 
-  //GET BOARDS
   const { data: boards = [] } = useQuery({
     queryKey: queryKeys.boards,
     queryFn: getAllBoards,
   });
 
-  //GET TASKS
   const { data: tasks = [] } = useQuery({
     queryKey: queryKeys.allTasks,
     queryFn: () => getTasks(),
@@ -98,7 +113,12 @@ const TaskListView = () => {
     enabled: !!selectedTask && (isDetailsModalOpen || isEditModalOpen),
   });
 
+  // Used by HeaderContainer
   const currentBoard = boards.find((board) => board.id === boardId);
+
+  // ----------------------------
+  // Table options
+  // ----------------------------
 
   const boardOptions = boards.map((board) => ({
     label: board.name,
@@ -131,9 +151,12 @@ const TaskListView = () => {
         boardName: boardNameMap.get(task.boardId) ?? "Unknown board",
 
         status: task.status,
+
         completedSubtasks: task.completedSubtasks,
+
         totalSubtasks: task.totalSubtasks,
       })),
+
     [tasks, boardNameMap],
   );
 
@@ -143,13 +166,13 @@ const TaskListView = () => {
         .toLowerCase()
         .includes(taskListState.search.trim().toLowerCase());
 
-      const matchedBoard =
+      const matchesBoard =
         !taskListState.boardId || task.boardId === taskListState.boardId;
 
       const matchesStatus =
         !taskListState.status || task.status === taskListState.status;
 
-      return matchesSearch && matchedBoard && matchesStatus;
+      return matchesSearch && matchesBoard && matchesStatus;
     });
   }, [
     tableData,
@@ -161,21 +184,23 @@ const TaskListView = () => {
   const updateTaskMutation = useMutation({
     mutationFn: ({
       taskId,
-      updates,
+      request,
     }: {
       taskId: string;
       boardId: string;
-      updates: IUpdateTaskRequest;
-    }) => updateTask(taskId, updates),
+      request: IUpdateTaskRequest;
+    }) => updateTask(taskId, request),
 
     onSuccess: async (_, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: queryKeys.allTasks,
         }),
+
         queryClient.invalidateQueries({
           queryKey: queryKeys.tasksByBoard(variables.boardId),
         }),
+
         queryClient.invalidateQueries({
           queryKey: queryKeys.task(variables.taskId),
         }),
@@ -183,7 +208,10 @@ const TaskListView = () => {
 
       notify.success("Task updated", "Changes saved successfully.");
     },
-    onError: () => {
+
+    onError: (error) => {
+      console.error("Failed to update task:", error);
+
       notify.error("Update failed", "Please try again.");
     },
   });
@@ -222,153 +250,6 @@ const TaskListView = () => {
     },
   });
 
-  ////BURDA KALDIM
-  const columns: TableColumnsType<ITaskTableRow> = [
-    {
-      title: "Task Title",
-      dataIndex: "title",
-
-      sorter: (a, b) => a.title.localeCompare(b.title),
-    },
-    {
-      title: "Board",
-      dataIndex: "boardName",
-      key: "boardName",
-
-      sorter: (a, b) => a.boardName.localeCompare(b.boardName),
-
-      filters: boardOptions.map((board) => ({
-        text: board.label,
-        value: board.value,
-      })),
-
-      filteredValue: taskListState.boardId ? [taskListState.boardId] : null,
-      filterMultiple: false,
-    },
-    {
-      title: "Status",
-      dataIndex: "status",
-      key: "status",
-
-      sorter: (a, b) => a.status.localeCompare(b.status),
-      filters: statusOptions.map((status) => ({
-        text: status.label,
-        value: status.value,
-      })),
-
-      filteredValue: taskListState.status ? [taskListState.status] : null,
-      filterMultiple: false,
-    },
-    {
-      title: "Completed Subtasks",
-      dataIndex: "completedSubtasks",
-    },
-    {
-      title: "Total Subtasks",
-      dataIndex: "totalSubtasks",
-    },
-    {
-      title: "Actions",
-
-      render: (_, record) => (
-        <Space>
-          <Tooltip title="View">
-            <Button
-              type="text"
-              icon={<EyeOutlined />}
-              onClick={() => {
-                setSelectedTask({ boardId: record.boardId, taskId: record.id });
-                setIsDetailsModalOpen(true);
-              }}
-            />
-          </Tooltip>
-
-          <Tooltip title="Edit">
-            <Button
-              type="text"
-              icon={<EditOutlined />}
-              onClick={() => {
-                setSelectedTask({ boardId: record.boardId, taskId: record.id });
-                setIsEditModalOpen(true);
-              }}
-            />
-          </Tooltip>
-
-          <Tooltip title="Delete">
-            <Button
-              type="text"
-              icon={<DeleteOutlined />}
-              onClick={() => {
-                handleDeleteFromTable(record);
-              }}
-            />
-          </Tooltip>
-        </Space>
-      ),
-    },
-  ];
-
-  const selectedBoard = selectedTask
-    ? boards.find((board) => board.id === selectedTask.boardId)
-    : undefined;
-
-  const handleDeleteFromTable = (record: ITaskTableRow) => {
-    Modal.confirm({
-      title: "Delete this task?",
-      content: `Are you sure you want to delete "${record.title}"`,
-      okText: "Delete",
-      okType: "danger",
-      cancelText: "Cancel",
-
-      onOk: () =>
-        deleteTaskMutation.mutateAsync({
-          boardId: record.boardId,
-          taskId: record.id,
-        }),
-    });
-  };
-
-  const handleStatusChange = (newColumnId: string) => {
-    if (!selectedTask || !selectedTaskDetails) {
-      return;
-    }
-
-    const request: IUpdateTaskRequest = {
-      columnId: newColumnId,
-      title: selectedTaskDetails.title,
-      description: selectedTaskDetails.description,
-      subtasks: selectedTaskDetails.subtasks.map((subtask) => ({
-        id: subtask.id,
-        title: subtask.title,
-        isCompleted: subtask.isCompleted,
-      })),
-    };
-
-    updateTaskMutation.mutate({
-      taskId: selectedTask.taskId,
-      boardId: selectedTask.boardId,
-      request,
-    });
-  };
-
-  const handleSubtaskChange = (checkedValues: (string | number)[]) => {
-    if (!selectedTask || !currentTask) return;
-
-    const updatedSubtasks = currentTask.subtasks.map((subtask) => ({
-      ...subtask,
-
-      isCompleted: checkedValues.includes(subtask.id),
-    }));
-
-    updateTaskMutation.mutate({
-      boardId: selectedTask.boardId,
-      taskId: currentTask.id,
-      updates: {
-        subtasks: updatedSubtasks,
-      },
-    });
-  };
-
   const deleteTaskMutation = useMutation({
     mutationFn: ({ taskId }: { taskId: string; boardId: string }) =>
       deleteTask(taskId),
@@ -389,14 +270,21 @@ const TaskListView = () => {
       });
 
       setIsDetailsModalOpen(false);
+      setIsEditModalOpen(false);
       setSelectedTask(null);
 
       notify.success("Task deleted", "Task was deleted successfully.");
     },
+
+    onError: (error) => {
+      console.error("Failed to delete task:", error);
+
+      notify.error("Delete failed", "Task could not be deleted.");
+    },
   });
 
   const editTaskMutation = useMutation({
-    mutationFn: async (values: EditTaskValues) => {
+    mutationFn: async ({ taskId, values }: EditTaskMutationVariables) => {
       if (!selectedTaskDetails) {
         throw new Error("Task details are not loaded");
       }
@@ -418,7 +306,9 @@ const TaskListView = () => {
       );
 
       const subtasksToUpdate = submittedSubtasks.filter((subtask) => {
-        if (!subtask.id) return false;
+        if (!subtask.id) {
+          return false;
+        }
 
         const existing = selectedTaskDetails.subtasks.find(
           (item) => item.id === subtask.id,
@@ -429,7 +319,9 @@ const TaskListView = () => {
 
       const taskRequest: IUpdateTaskRequest = {
         columnId: values.columnId,
+
         title: values.title.trim(),
+
         description: values.description ?? "",
 
         subtasks: selectedTaskDetails.subtasks.map((subtask) => ({
@@ -438,14 +330,15 @@ const TaskListView = () => {
           isCompleted: subtask.isCompleted,
         })),
       };
-      await updateTask(task.id, taskRequest);
+
+      await updateTask(taskId, taskRequest);
 
       await Promise.all([
         ...subtasksToDelete.map((subtask) => deleteSubtask(subtask.id)),
 
         ...subtasksToCreate.map((subtask) =>
           createSubtask({
-            taskId: task.id,
+            taskId,
             title: subtask.title.trim(),
             isCompleted: false,
           }),
@@ -457,26 +350,28 @@ const TaskListView = () => {
           )!;
 
           return updateSubtask(subtask.id!, {
-            taskId: task.id,
+            taskId,
+
             title: subtask.title.trim(),
+
             isCompleted: existing.isCompleted,
           });
         }),
       ]);
     },
 
-    onSuccess: async () => {
+    onSuccess: async (_, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.tasksByBoard(task.boardId),
+          queryKey: queryKeys.allTasks,
         }),
 
         queryClient.invalidateQueries({
-          queryKey: queryKeys.task(task.id),
+          queryKey: queryKeys.tasksByBoard(variables.boardId),
         }),
 
         queryClient.invalidateQueries({
-          queryKey: queryKeys.subtasks(task.id),
+          queryKey: queryKeys.task(variables.taskId),
         }),
       ]);
 
@@ -492,44 +387,186 @@ const TaskListView = () => {
     },
   });
 
-  const handleEditTask = (values: EditTaskValues) => {
-    if (!selectedTask || !currentTask) return;
+  const handleStatusChange = (newColumnId: string) => {
+    if (!selectedTask || !selectedTaskDetails) {
+      return;
+    }
 
-    const now = Date.now();
+    const request: IUpdateTaskRequest = {
+      columnId: newColumnId,
 
-    const updatedSubtasks = values.subtasks.map((subtask, index) => {
-      const existingSubtask = currentTask.subtasks.find(
-        (item) => item.id === subtask.id,
-      );
+      title: selectedTaskDetails.title,
 
-      return {
-        id: subtask.id ?? now + index,
+      description: selectedTaskDetails.description,
+
+      subtasks: selectedTaskDetails.subtasks.map((subtask) => ({
+        id: subtask.id,
         title: subtask.title,
-        isCompleted: existingSubtask?.isCompleted ?? false,
-      };
-    });
-
-    const updates: IUpdateTaskRequest = {
-      title: values.title,
-      description: values.description ?? "",
-      status: values.status,
-      subtasks: updatedSubtasks,
+        isCompleted: subtask.isCompleted,
+      })),
     };
 
-    updateTaskMutation.mutate(
-      {
-        boardId: selectedTask.boardId,
-        taskId: currentTask.id,
-        updates,
-      },
-
-      {
-        onSuccess: () => {
-          setIsEditModalOpen(false);
-        },
-      },
-    );
+    updateTaskMutation.mutate({
+      taskId: selectedTask.taskId,
+      boardId: selectedTask.boardId,
+      request,
+    });
   };
+
+  const handleSubtaskChange = (checkedValues: string[]) => {
+    if (!selectedTask || !selectedTaskDetails) {
+      return;
+    }
+
+    const changedSubtasks = selectedTaskDetails.subtasks.filter(
+      (subtask) => checkedValues.includes(subtask.id) !== subtask.isCompleted,
+    );
+
+    changedSubtasks.forEach((subtask) => {
+      updateSubtaskMutation.mutate({
+        subtaskId: subtask.id,
+
+        request: {
+          taskId: selectedTask.taskId,
+
+          title: subtask.title,
+
+          isCompleted: checkedValues.includes(subtask.id),
+        },
+      });
+    });
+  };
+
+  const handleEditTask = (values: EditTaskValues) => {
+    if (!selectedTask) return;
+
+    editTaskMutation.mutate({
+      taskId: selectedTask.taskId,
+      boardId: selectedTask.boardId,
+      values,
+    });
+  };
+
+  const handleDeleteFromTable = (record: ITaskTableRow) => {
+    Modal.confirm({
+      title: "Delete this task?",
+
+      content: `Are you sure you want to delete "${record.title}"?`,
+
+      okText: "Delete",
+      okType: "danger",
+      cancelText: "Cancel",
+
+      onOk: () =>
+        deleteTaskMutation.mutateAsync({
+          boardId: record.boardId,
+          taskId: record.id,
+        }),
+    });
+  };
+
+  const columns: TableColumnsType<ITaskTableRow> = [
+    {
+      title: "Task Title",
+      dataIndex: "title",
+      key: "title",
+
+      sorter: (a, b) => a.title.localeCompare(b.title),
+    },
+
+    {
+      title: "Board",
+      dataIndex: "boardName",
+      key: "boardName",
+
+      sorter: (a, b) => a.boardName.localeCompare(b.boardName),
+
+      filters: boardOptions.map((board) => ({
+        text: board.label,
+        value: board.value,
+      })),
+
+      filteredValue: taskListState.boardId ? [taskListState.boardId] : null,
+
+      filterMultiple: false,
+    },
+
+    {
+      title: "Status",
+      dataIndex: "status",
+      key: "status",
+
+      sorter: (a, b) => a.status.localeCompare(b.status),
+
+      filters: statusOptions.map((status) => ({
+        text: status.label,
+        value: status.value,
+      })),
+
+      filteredValue: taskListState.status ? [taskListState.status] : null,
+
+      filterMultiple: false,
+    },
+
+    {
+      title: "Completed Subtasks",
+      dataIndex: "completedSubtasks",
+    },
+
+    {
+      title: "Total Subtasks",
+      dataIndex: "totalSubtasks",
+    },
+
+    {
+      title: "Actions",
+
+      render: (_, record) => (
+        <Space>
+          <Tooltip title="View">
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={() => {
+                setSelectedTask({
+                  boardId: record.boardId,
+
+                  taskId: record.id,
+                });
+
+                setIsDetailsModalOpen(true);
+              }}
+            />
+          </Tooltip>
+
+          <Tooltip title="Edit">
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => {
+                setSelectedTask({
+                  boardId: record.boardId,
+
+                  taskId: record.id,
+                });
+
+                setIsEditModalOpen(true);
+              }}
+            />
+          </Tooltip>
+
+          <Tooltip title="Delete">
+            <Button
+              type="text"
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteFromTable(record)}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
+
   return (
     <Layout>
       {currentBoard && <HeaderContainer board={currentBoard} view="tasks" />}
@@ -549,21 +586,28 @@ const TaskListView = () => {
             onChange={(e) =>
               setTaskListState((prev) => ({
                 ...prev,
+
                 search: e.target.value,
+
                 currentPage: 1,
               }))
             }
           />
         </div>
+
         <Table
           columns={columns}
           dataSource={filteredData}
-          rowKey={(record) => `${record.boardId}-${record.id}`}
+          rowKey="id"
           pagination={{
             current: taskListState.currentPage,
+
             pageSize: taskListState.pageSize,
+
             pageSizeOptions: ["10", "20", "30", "50"],
+
             showSizeChanger: true,
+
             total: filteredData.length,
           }}
           onChange={(pagination, filters, sorter, extra) => {
@@ -579,10 +623,12 @@ const TaskListView = () => {
               ...prev,
 
               boardId: selectedBoard,
+
               status: selectedStatus,
 
               currentPage:
                 extra.action === "filter" ? 1 : (pagination.current ?? 1),
+
               pageSize: pagination.pageSize ?? 10,
 
               sortField: sorter.order
@@ -593,6 +639,22 @@ const TaskListView = () => {
             }));
           }}
         />
+
+        {selectedTaskLoading &&
+          selectedTask &&
+          (isDetailsModalOpen || isEditModalOpen) && (
+            <Modal
+              open
+              footer={null}
+              onCancel={() => {
+                setIsDetailsModalOpen(false);
+
+                setIsEditModalOpen(false);
+              }}
+            >
+              Loading task...
+            </Modal>
+          )}
 
         {selectedTaskDetails && isDetailsModalOpen && (
           <TaskDetailsModal
@@ -605,12 +667,13 @@ const TaskListView = () => {
             showActions={false}
           />
         )}
-        {selectedTaskDetails && isDetailsModalOpen && (
+
+        {selectedTaskDetails && isEditModalOpen && (
           <TaskEditModal
             open={isEditModalOpen}
             task={selectedTaskDetails}
             columns={selectedBoardColumns}
-            loading={updateTaskMutation.isPending}
+            loading={editTaskMutation.isPending}
             onCancel={() => setIsEditModalOpen(false)}
             onSubmit={handleEditTask}
           />
